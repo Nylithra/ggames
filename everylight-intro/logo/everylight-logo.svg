@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1000 1000" width="1000" height="1000">
+  <title>Everylight Co.</title>
+  <defs>
+    <!-- palette: 1960s print — cream, warm brown, faded red -->
+    <style>
+      .cream { fill: #f4e7c8; }
+      .ink   { fill: #3a2414; }
+      .red   { fill: #b23a22; }
+      .gold  { fill: #e0a83a; }
+      .ring  { font-family: "Courier New", "DejaVu Sans Mono", monospace; font-weight: 700; font-size: 40px; letter-spacing: 9px; fill: #f4e7c8; }
+      .word  { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-weight: 700; }
+    </style>
+    <path id="topArc" d="M 140 500 A 360 360 0 0 1 860 500" />
+    <path id="botArc" d="M 118 500 A 382 382 0 0 0 882 500" />
+    <clipPath id="disc"><circle cx="500" cy="500" r="300" /></clipPath>
+    <!-- 19 rays (hidden: DENEK #19) -->
+    <g id="ray"><polygon points="-9,-112 9,-112 22,-290 -22,-290" /></g>
+  </defs>
+
+  <!-- outer badge -->
+  <circle cx="500" cy="500" r="470" class="ink" />
+  <circle cx="500" cy="500" r="452" fill="none" stroke="#f4e7c8" stroke-width="6" />
+  <circle cx="500" cy="500" r="322" fill="none" stroke="#f4e7c8" stroke-width="6" />
+  <text class="ring"><textPath href="#topArc" startOffset="50%" text-anchor="middle">EVERYLIGHT CO. · EST. 1946</textPath></text>
+  <text class="ring" style="font-size:30px;letter-spacing:6px"><textPath href="#botArc" startOffset="50%" text-anchor="middle">TEMİZ ELLER · TEMİZ ZİHİNLER</textPath></text>
+  <circle cx="140" cy="500" r="9" class="cream" />
+  <circle cx="860" cy="500" r="9" class="cream" />
+
+  <!-- inner scene: sunrise over the school -->
+  <g clip-path="url(#disc)">
+    <rect x="200" y="200" width="600" height="600" class="cream" />
+    <g transform="translate(500 500)" class="gold"><use href="#ray" transform="rotate(-90)" /><use href="#ray" transform="rotate(-80)" /><use href="#ray" transform="rotate(-70)" /><use href="#ray" transform="rotate(-60)" /><use href="#ray" transform="rotate(-50)" /><use href="#ray" transform="rotate(-40)" /><use href="#ray" transform="rotate(-30)" /><use href="#ray" transform="rotate(-20)" /><use href="#ray" transform="rotate(-10)" /><use href="#ray" transform="rotate(0)" /><use href="#ray" transform="rotate(10)" /><use href="#ray" transform="rotate(20)" /><use href="#ray" transform="rotate(30)" /><use href="#ray" transform="rotate(40)" /><use href="#ray" transform="rotate(50)" /><use href="#ray" transform="rotate(60)" /><use href="#ray" transform="rotate(70)" /><use href="#ray" transform="rotate(80)" /><use href="#ray" transform="rotate(90)" /></g>
+    <!-- sun; the trefoil inside is only a shade darker (uranium) -->
+    <circle cx="500" cy="500" r="100" class="red" />
+    <g transform="translate(500 500)" fill="#9c2f1b">
+      <path d="M0 0 L -38 -65.8 A 76 76 0 0 1 38 -65.8 Z" />
+      <path d="M0 0 L 76 0 A 76 76 0 0 1 38 65.8 Z" />
+      <path d="M0 0 L -38 65.8 A 76 76 0 0 1 -76 0 Z" />
+    </g>
+    <circle cx="500" cy="500" r="18" class="red" />
+    <!-- school: roofline and clock tower above the ribbon, facade below it -->
+    <g class="ink">
+      <polygon points="200,640 500,560 800,640" />
+      <rect x="472" y="532" width="56" height="60" />
+      <polygon points="462,536 500,500 538,536" />
+      <rect x="200" y="640" width="600" height="170" />
+    </g>
+    <circle cx="500" cy="560" r="14" class="cream" />
+    <line x1="500" y1="560" x2="500" y2="550" stroke="#3a2414" stroke-width="4" />
+    <line x1="500" y1="560" x2="508" y2="560" stroke="#3a2414" stroke-width="4" />
+    <g class="cream">
+      <rect x="262" y="704" width="40" height="44" /><rect x="330" y="704" width="40" height="44" /><rect x="398" y="704" width="40" height="44" />
+      <rect x="562" y="704" width="40" height="44" /><rect x="630" y="704" width="40" height="44" /><rect x="698" y="704" width="40" height="44" />
+      <path d="M 474 800 L 474 734 A 26 26 0 0 1 526 734 L 526 800 Z" />
+    </g>
+    <g stroke="#3a2414" stroke-width="4">
+      <line x1="282" y1="704" x2="282" y2="748" /><line x1="350" y1="704" x2="350" y2="748" /><line x1="418" y1="704" x2="418" y2="748" />
+      <line x1="582" y1="704" x2="582" y2="748" /><line x1="650" y1="704" x2="650" y2="748" /><line x1="718" y1="704" x2="718" y2="748" />
+    </g>
+    <!-- basement windows at ground level: one glows faintly green -->
+    <rect x="404" y="772" width="36" height="12" fill="#5a3a24" />
+    <rect x="560" y="772" width="36" height="12" fill="#6fae4f" opacity="0.75" />
+  </g>
+
+  <!-- wordmark ribbon -->
+  <g transform="translate(500 640)">
+    <path d="M -410 -54 L 410 -54 L 382 0 L 410 54 L -410 54 L -382 0 Z" class="red" />
+    <path d="M -410 -54 L 410 -54 L 382 0 L 410 54 L -410 54 L -382 0 Z" fill="none" stroke="#f4e7c8" stroke-width="5" />
+    <text class="word" x="0" y="26" text-anchor="middle" font-size="80" fill="#f4e7c8" stroke="#3a2414" stroke-width="3" paint-order="stroke">Everylight Co.</text>
+  </g>
+</svg>
