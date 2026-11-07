@@ -4,10 +4,12 @@
 
 `everylight-intro/index.html` — 15 saniyelik Everylight Co. ARG / analog-horror intro'su. Tarayıcıda aç (`assets.js` aynı klasörde olmalı).
 
+Hazır video: [`everylight-intro/everylight-intro.mp4`](everylight-intro/everylight-intro.mp4) (960×720, 24 fps, sesli).
+
 | Süre | Sahne |
 |---|---|
 | 0:00–0:05 | Gerçek kamu malı arşiv fotoğrafları (1916–1947), sepya, gren, giderek bozulan bant ve neşeli reklam müziği |
-| 0:05–0:05.5 | Metalik frekans patlaması + 12 karelik glitch: -1. kat, kanlı masalar, yeşil uranyum odası, cama yapışmış denek |
+| 0:05–0:05.5 | Metalik frekans patlaması + 12 karelik glitch: -1. kat: gerçek otopsi odası, kanlı masalar, kadraj dışından sızan yeşil ışık |
 | 0:05.5–0:06 | Sessizlik / siyah |
 | 0:06–0:12 | Acil durum yayını, daktilo efekti |
 | 0:12–0:15 | Kararma, köşede “Temiz eller, temiz zihinler.” |

@@ -69,135 +69,104 @@ def draw_blood(layer_rgba, mask, color=(105, 4, 4), alpha=0.92):
     return Image.fromarray(a.astype(np.uint8), "RGBA")
 
 
+def _blur(a, r):
+    return np.asarray(Image.fromarray(np.clip(a * 255, 0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(r)), np.float32) / 255
+
+
+def _poly(points):
+    m = Image.new("L", (W, H), 0); ImageDraw.Draw(m).polygon(points, fill=255)
+    return np.asarray(m, np.float32) / 255
+
+
 def build_lab():
+    """The -1 floor: a real autopsy room at night, blood that sits on its surfaces,
+    and a faint green light leaking in from somewhere outside the frame (left)."""
     base = Image.open(os.path.join(SRC, "gorgas_autopsy_room.jpg")).convert("L")
     base = base.crop((22, 60, 1222, 960)).resize((W, H), Image.LANCZOS)
     g = np.asarray(base, np.float32) / 255.0
-    # window on the back wall becomes the uranium room
-    win = (474, 158, 776, 352)
-    wm = np.zeros((H, W), np.float32)
-    x0, y0, x1, y1 = win
-    wm[y0:y1, x0:x1] = np.clip((g[y0:y1, x0:x1] - 0.62) / 0.25, 0, 1)
-    wm = np.asarray(Image.fromarray((wm * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(2)), np.float32) / 255
-    # night: crush everything, cold green cast
-    dark = g ** 2.4 * 0.42
-    rgb = np.stack([dark * 0.62, dark * 0.95, dark * 0.78], -1) * 255
-    # glow + bloom from the window
-    bloom = np.asarray(Image.fromarray((wm * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(45)), np.float32) / 255
-    bloom2 = np.asarray(Image.fromarray((wm * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(140)), np.float32) / 255
-    green = np.array([120, 255, 70], np.float32)
-    rgb += wm[..., None] * (0.35 + 0.65 * g[..., None]) * np.array([95, 235, 70]) * 0.85
-    rgb += bloom[..., None] * green * 0.55 + bloom2[..., None] * green * 0.35
-    # light spilling onto the porcelain tables / floor (bright surfaces catch it)
-    rgb += (g ** 3)[..., None] * bloom2[..., None] * green * 1.1
-    img = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8)).convert("RGBA")
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
 
-    # the subject, pressed against the glass (soft, as through thick glass)
-    sil = Image.new("L", (W, H), 0)
-    d = ImageDraw.Draw(sil)
-    cx = 626
-    d.ellipse((cx - 23, 196, cx + 21, 248), fill=255)                      # head
-    d.polygon([(cx - 52, 268), (cx + 50, 266), (cx + 70, 352), (cx - 74, 352)], fill=255)
-    d.rectangle((cx - 9, 240, cx + 9, 272), fill=255)                      # neck
-    d.line([(cx - 40, 276), (cx - 70, 232), (cx - 86, 186)], fill=255, width=20, joint="curve")
-    d.line([(cx + 38, 274), (cx + 72, 228), (cx + 88, 182)], fill=255, width=20, joint="curve")
-    for hx, hy, s in ((cx - 88, 178, -1), (cx + 90, 174, 1)):              # spread hands
-        d.ellipse((hx - 14, hy - 12, hx + 14, hy + 14), fill=255)
-        for k in range(5):
-            a = np.radians(-150 + k * 28 + (s * 6))
-            d.line([(hx, hy), (hx + np.cos(a) * 28, hy + np.sin(a) * 30)], fill=255, width=6)
-    sil = sil.filter(ImageFilter.GaussianBlur(3.2))
-    clip = Image.new("L", (W, H), 0); ImageDraw.Draw(clip).rectangle(win, fill=255)
-    sm = np.asarray(sil, np.float32) / 255 * np.asarray(clip, np.float32) / 255
-    a = np.asarray(img, np.float32)
-    a[..., :3] *= (1 - sm[..., None] * 0.86)
-    img = Image.fromarray(a.astype(np.uint8), "RGBA")
-    # eyes catching the light
-    eyes = Image.new("L", (W, H), 0); ed = ImageDraw.Draw(eyes)
-    ed.ellipse((cx - 11, 217, cx - 6, 221), fill=45); ed.ellipse((cx + 6, 216, cx + 11, 220), fill=45)
-    eyes = eyes.filter(ImageFilter.GaussianBlur(1.2))
-    a = np.asarray(img, np.float32); em = np.asarray(eyes, np.float32)[..., None] / 255
-    a[..., :3] += em * np.array([200, 255, 190]); img = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), "RGBA")
+    # night grade: crushed, cold
+    dark = g ** 2.1 * 0.46
+    rgb = np.stack([dark * 0.80, dark * 0.90, dark * 1.0], -1) * 255
 
-    # blood: handprints + smears on the glass, spills on the tables and floor
-    bm = np.zeros((H, W), np.float32)
-    def hand(hx, hy, rot, sc=1.0):
-        m = Image.new("L", (W, H), 0); dd = ImageDraw.Draw(m)
-        dd.ellipse((hx - 13 * sc, hy - 12 * sc, hx + 13 * sc, hy + 15 * sc), fill=255)
-        for k in range(5):
-            a = rot + np.radians(-150 + k * 27)
-            L = (20 if k == 0 else 27) * sc
-            dd.line([(hx + np.cos(a) * 10 * sc, hy + np.sin(a) * 10 * sc), (hx + np.cos(a) * (10 * sc + L), hy + np.sin(a) * (10 * sc + L))], fill=255, width=int(6 * sc))
-        for k in range(5):                                                  # drips
-            x = hx + (rs.rand() - 0.5) * 22 * sc; L = 25 + rs.rand() * 110
-            w = 2 + int(rs.rand() * 3)
-            dd.line([(x, hy + 8), (x + (rs.rand() - 0.5) * 3, hy + L)], fill=230, width=w)
-            dd.ellipse((x - w, hy + L - w, x + w, hy + L + w + 1), fill=230)
-        for k in range(4):                                                  # finger smears sliding down
-            ox = (k - 1.5) * 6 * sc
-            dd.line([(hx + ox, hy + 4), (hx + ox + (rs.rand() - 0.5) * 10, hy + 60 + rs.rand() * 70)], fill=int(70 + rs.rand() * 70), width=int(3 + rs.rand() * 3))
-        return np.asarray(m.filter(ImageFilter.GaussianBlur(0.9)), np.float32) / 255
-    bm = np.maximum(bm, hand(cx - 92, 186, 0.15))
-    bm = np.maximum(bm, hand(cx + 96, 181, -0.2))
-    bm = np.maximum(bm, hand(cx - 30, 300, 0.4, 0.8))
-    bm *= np.asarray(clip, np.float32) / 255
-    for _ in range(60):                                                     # spatter on glass
-        x, y, r = x0 + rs.rand() * (x1 - x0), y0 + rs.rand() * (y1 - y0), rs.rand() * 2.6
-        yy, xx = np.ogrid[0:H, 0:W]; bm = np.maximum(bm, np.clip(1.5 - ((xx - x) ** 2 + (yy - y) ** 2) / max(r * r, 0.5), 0, 1) * 0.9)
-    tex = np.asarray(Image.fromarray((rs.rand(H, W) * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.5)), np.float32) / 255
-    # table tops (pools) + drips over the edges + floor
-    spills = [(215, 380, 70, 10, 11, 0.8), (410, 400, 80, 13, 12, 0.85), (775, 445, 70, 34, 13, 0.9),
-              (440, 610, 90, 16, 14, 0.6), (225, 525, 45, 8, 15, 0.55), (810, 655, 85, 20, 16, 0.65)]
-    for cxs, cys, rx, ry, sd, al in spills:
-        bm = np.maximum(bm, noise_blob((W, H), cxs, cys, rx, ry, sd, rough=0.55) * al)
+    # off-screen green source, low on the left (a door we never see)
+    d = np.sqrt(((xx + 260) / 1.0) ** 2 + ((yy - 610) / 0.75) ** 2)
+    light = np.clip(1.0 - d / 1150, 0, 1) ** 2.2
+    floor_bias = np.clip((yy - 380) / 300, 0, 1)                           # floor / table sides catch most of it
+    lf = light * (0.45 + 0.55 * floor_bias)
+    green = np.array([70, 190, 60], np.float32)
+    rgb += (g ** 1.4)[..., None] * lf[..., None] * green * 1.35
+    rgb += lf[..., None] * np.array([4, 16, 6])                           # a little haze in the air
+
+    # ---------------------------------------------------------------- blood mask
+    M = np.zeros((H, W), np.float32)
+    tray3 = _poly([(740, 392), (852, 396), (902, 516), (660, 497)])       # near table, tray inset
+    top2 = _poly([(262, 386), (522, 381), (530, 397), (250, 410)])
+    top1 = _poly([(72, 380), (330, 362), (338, 368), (80, 389)])
+    M = np.maximum(M, _blur(noise_blob((W, H), 745, 474, 105, 34, 21, rough=0.3), 1.6) * tray3)
+    M = np.maximum(M, _blur(noise_blob((W, H), 815, 440, 34, 22, 22, rough=0.3), 1.6) * tray3 * 0.75)
+    M = np.maximum(M, _blur(noise_blob((W, H), 400, 398, 95, 11, 23, rough=0.3), 1.2) * top2)
+    M = np.maximum(M, _blur(noise_blob((W, H), 205, 376, 60, 8, 24, rough=0.3), 1.2) * top1 * 0.85)
+
     dm = Image.new("L", (W, H), 0); dd = ImageDraw.Draw(dm)
-    for (ex0, ex1, ey, Lmax) in ((140, 260, 392, 90), (330, 470, 420, 120), (700, 850, 470, 130)):
-        for _ in range(7):
-            x = ex0 + rs.rand() * (ex1 - ex0); L = 10 + rs.rand() * Lmax * 0.7; w = 1 + int(rs.rand() * 3)
-            dd.line([(x, ey), (x, ey + L)], fill=240, width=w); dd.ellipse((x - w, ey + L - w, x + w, ey + L + w), fill=240)
-    for k in range(5):                                                      # drag marks to the window
-        o = (k - 2) * 7
-        dd.line([(560 + o, 715), (590 + o, 600), (615 + o * 0.6, 480), (628 + o * 0.3, 380)], fill=int(30 + rs.rand() * 45), width=5 + int(rs.rand() * 5), joint="curve")
-    bm = np.maximum(bm, np.asarray(dm.filter(ImageFilter.GaussianBlur(1.2)), np.float32) / 255)
-    bm *= 0.65 + tex * 0.5
-    # blood reads almost black in green light, glossy where the glow hits it
-    a = np.asarray(img, np.float32)
-    lit = np.clip(bloom2 * 1.5 + bloom, 0, 1)[..., None]
-    m = np.clip(bm, 0, 1)[..., None] * 0.92
-    tint = np.array([0.50, 0.08, 0.05])
-    lum = a[..., :3].mean(-1, keepdims=True)
-    blood = lum * 0.95 * tint + np.array([10, 0, 0])
-    a[..., :3] = a[..., :3] * (1 - m) + blood * m
-    spec = (tex > 0.86)[..., None] * m * lit * 60
-    a[..., :3] += spec
-    img = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), "RGBA").convert("RGB")
+    def drip(x, y0, L, w, v=None):
+        v = v or int(150 + rs.rand() * 105)
+        x1 = x + (rs.rand() - 0.5) * 2
+        dd.line([(x, y0), (x1, y0 + L)], fill=v, width=w)
+        dd.ellipse((x1 - w * 0.9, y0 + L - w * 0.6, x1 + w * 0.9, y0 + L + w * 1.2), fill=v)
+    for _ in range(9):                                                      # over table 3's front rim
+        x = 675 + rs.rand() * 190; y = 500 + (x - 660) * 0.078
+        drip(x, y, 12 + rs.rand() * 48, 2 + int(rs.rand() * 3))
+    drip(758, 560, 120, 4); drip(752, 600, 90, 3)                           # down the pipe to the floor
+    for _ in range(8):                                                      # table 2 front edge
+        x = 270 + rs.rand() * 240; y = 409 - (x - 250) * 0.047
+        drip(x, y, 8 + rs.rand() * 40, 2 + int(rs.rand() * 2))
+    drip(296, 432, 150, 4)                                                  # along table 2's hose
+    for _ in range(5):                                                      # table 1 front edge
+        x = 110 + rs.rand() * 200; y = 388 - (x - 80) * 0.075
+        drip(x, y, 6 + rs.rand() * 26, 2)
+    M = np.maximum(M, _blur(np.asarray(dm, np.float32) / 255, 0.7))
 
-    # steel window frame and wired glass
-    fr = Image.new("RGBA", (W, H), (0, 0, 0, 0)); fd = ImageDraw.Draw(fr)
-    for k in range(-400, 400, 18):
-        fd.line([(x0 + k, y0), (x0 + k + (y1 - y0), y1)], fill=(10, 40, 10, 38), width=1)
-        fd.line([(x1 - k, y0), (x1 - k - (y1 - y0), y1)], fill=(10, 40, 10, 38), width=1)
-    fr = Image.composite(fr, Image.new("RGBA", (W, H), (0, 0, 0, 0)), clip)
-    fd = ImageDraw.Draw(fr)
-    fd.rectangle((x0 - 14, y0 - 14, x1 + 14, y1 + 14), outline=(22, 30, 26, 255), width=14)
-    fd.rectangle((x0 - 15, y0 - 15, x1 + 15, y1 + 15), outline=(60, 80, 66, 255), width=1)
-    fd.rectangle((x0 - 1, y0 - 1, x1 + 1, y1 + 1), outline=(5, 10, 6, 255), width=2)
-    for bx, by in ((x0 - 7, y0 - 7), (x1 + 7, y0 - 7), (x0 - 7, y1 + 7), (x1 + 7, y1 + 7)):
-        fd.ellipse((bx - 3, by - 3, bx + 3, by + 3), fill=(80, 110, 90, 255))
-    img = Image.alpha_composite(img.convert("RGBA"), fr.filter(ImageFilter.GaussianBlur(0.6))).convert("RGB")
+    # floor: pools (flat in perspective), splatter, and a drag mark toward the light
+    for cx, cy, rx, ry, sd, al in ((298, 594, 34, 7, 31, 0.95), (760, 706, 70, 12, 32, 0.95),
+                                   (430, 566, 60, 10, 33, 0.8), (235, 505, 30, 5, 34, 0.7)):
+        M = np.maximum(M, _blur(noise_blob((W, H), cx, cy, rx, ry, sd, rough=0.3), 1.2) * al)
+    sm = Image.new("L", (W, H), 0); sd_ = ImageDraw.Draw(sm)
+    for k in range(7):
+        o = (k - 3) * 6
+        pts = [(440 + o * 0.3, 572 + o * 0.4), (330, 610 + o), (190, 652 + o * 1.2), (40, 700 + o * 1.4), (-20, 718 + o * 1.5)]
+        sd_.line(pts, fill=int(120 + rs.rand() * 110), width=4 + int(rs.rand() * 6), joint="curve")
+    streak = np.asarray(sm.filter(ImageFilter.GaussianBlur(2.2)), np.float32) / 255
+    broken = _blur(rs.rand(H, W).astype(np.float32), 3.0)
+    streak *= np.clip((broken - 0.35) * 3.2, 0.15, 1)                       # dry, skipping drag texture
+    M = np.maximum(M, streak * 0.85)
+    for _ in range(70):                                                     # drops thrown off along the drag
+        t = rs.rand(); x = 430 - t * 420 + (rs.rand() - 0.5) * 70; y = 575 + t * 140 + (rs.rand() - 0.5) * 30
+        r = 0.8 + rs.rand() * 2.6
+        M = np.maximum(M, np.clip(1.3 - (((xx - x) / r) ** 2 + ((yy - y) / (r * 0.55)) ** 2), 0, 1))
 
-    # stencil on the wall
-    st = Image.new("L", (W, H), 0); sd = ImageDraw.Draw(st)
-    try:
-        font = ImageFont.truetype("DejaVuSansMono-Bold.ttf", 46); small = ImageFont.truetype("DejaVuSansMono-Bold.ttf", 17)
-    except OSError:
-        font = small = ImageFont.load_default()
-    sd.text((40, 560), "KAT -1", font=font, fill=255); sd.text((42, 612), "LAB-0 / URANYUM", font=small, fill=255)
-    st = np.asarray(st.filter(ImageFilter.GaussianBlur(0.7)), np.float32)[..., None] / 255
-    a = np.asarray(img, np.float32); a = a * (1 - st * 0.55) + np.array([14, 26, 18]) * st * 0.55
+    # ---------------------------------------------------------------- shade it
+    tex = _blur(rs.rand(H, W).astype(np.float32), 1.2)
+    M = np.clip(M, 0, 1)
+    thick = _blur(M, 3.0) * M                                               # deep in the middle, thin at the rim
+    a = rgb
+    lum = a.mean(-1, keepdims=True)
+    thin = lum * np.array([0.52, 0.07, 0.06]) + np.array([9, 0, 0])
+    deep = np.array([20, 1, 1], np.float32) + lf[..., None] * np.array([10, 8, 2])
+    k = np.clip(thick ** 0.7, 0, 1)[..., None]
+    blood = thin * (1 - k) + deep * k
+    rim = np.clip(M - _blur(M, 1.5), 0, 1)[..., None]                       # darker dried edge
+    blood *= 1 - rim * 0.5
+    m = M[..., None] * 0.95
+    a = a * (1 - m) + blood * m
+    # wet glints facing the green light (light from the left: surfaces whose slope faces -x)
+    gx = np.zeros_like(thick); gx[:, 1:-1] = thick[:, 2:] - thick[:, :-2]
+    glint = np.clip(gx * 5, 0, 1) * (tex > 0.6) * (0.15 + lf * 1.6) * (thick > 0.35)
+    a += glint[..., None] * np.array([70, 120, 70])
+
     # vignette
-    yy, xx = np.mgrid[0:H, 0:W]
-    v = np.clip(1.15 - (((xx - 600) / 640) ** 2 + ((yy - 300) / 520) ** 2), 0.15, 1)[..., None]
+    v = np.clip(1.18 - (((xx - 520) / 700) ** 2 + ((yy - 400) / 560) ** 2), 0.2, 1)[..., None]
     return Image.fromarray(np.clip(a * v, 0, 255).astype(np.uint8))
 
 

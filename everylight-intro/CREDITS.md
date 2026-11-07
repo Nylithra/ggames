@@ -2,7 +2,7 @@
 
 Intro'daki tüm fotoğraflar **kamu malıdır (public domain)**; telif sorunu yoktur. Orijinaller `sources/` klasöründe,
 işlenmiş halleri `assets/` ve `assets.js` içindedir (`tools/build_assets.py` ile üretilir: sepya tonlama, kırpma,
--1. kat karesindeki yeşil ışık, siluet ve kan efektleri bu betikle eklenmiştir).
+-1. kat karesindeki gece tonu, kadraj dışından sızan yeşil ışık ve kan efektleri bu betikle eklenmiştir).
 
 | Dosya | Kaynak | Lisans |
 |---|---|---|
