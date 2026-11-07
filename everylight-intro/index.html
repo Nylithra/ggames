@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everylight Co. Intro</title>
+<style>
+  :root { --bg:#050505; --fg:#cfc8b8; --dim:#6d675c; --accent:#d9b77a; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family: "Courier New", ui-monospace, monospace; }
+  body { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:16px; }
+  #stage { position:relative; width:min(100%, calc((100vh - 120px) * 4 / 3)); aspect-ratio:4/3; }
+  canvas { display:block; width:100%; height:100%; background:#000; border-radius:6px; }
+  #overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:10px; background:rgba(0,0,0,.72); cursor:pointer; border-radius:6px; text-align:center; padding:16px; }
+  #overlay b { font-size:clamp(18px,3vw,30px); letter-spacing:.15em; color:var(--accent); }
+  #overlay span { font-size:13px; color:var(--dim); }
+  #overlay.hidden { display:none; }
+  #bar { width:min(100%, calc((100vh - 120px) * 4 / 3)); display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  button { background:#151412; color:var(--fg); border:1px solid #2d2a25; border-radius:4px; padding:6px 10px;
+    font:inherit; font-size:14px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:default; }
+  input[type=range] { flex:1; min-width:120px; accent-color:var(--accent); }
+  #time { font-size:13px; color:var(--dim); min-width:120px; text-align:right; font-variant-numeric:tabular-nums; }
+  #hint a { color:var(--accent); }
+  #hint { width:min(100%, calc((100vh - 120px) * 4 / 3)); font-size:12px; color:var(--dim); margin:0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="c" width="960" height="720"></canvas>
+  <div id="overlay"><b>▶ EVERYLIGHT CO.</b><span id="ovsub">Yükleniyor…</span></div>
+</div>
+<div id="bar">
+  <button id="play" title="Oynat / Duraklat (Boşluk)">▶</button>
+  <button id="back" title="Bir kare geri (←)">◀▮</button>
+  <button id="fwd" title="Bir kare ileri (→)">▮▶</button>
+  <input id="seek" type="range" min="0" max="15" step="0.041666" value="0">
+  <span id="time">00:00.00 · kare 0</span>
+  <button id="rec" title="15 saniyelik videoyu .webm olarak kaydet">⏺ Kaydet</button>
+</div>
+<p id="hint">Boşluk: oynat/duraklat · ← →: kare kare ilerle · Dikkatli izleyiciler 0:05'te durdurmalı.</p>
+
+<script src="assets.js"></script>
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// Basics
+// ---------------------------------------------------------------------------
+const W = 960, H = 720, FPS = 24, DUR = 15, FRAMES = DUR * FPS;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+function mkCanvas(w = W, h = H) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+function rng(seed) { // mulberry32
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const smooth = (a, b, x) => { const k = clamp((x - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); };
+
+// Timeline (seconds)
+const T = {
+  glitchStart: 5.0, glitchEnd: 5.5,   // 0.5 s glitch
+  broadcast: 6.0,                     // emergency broadcast
+  closing: 12.0,
+};
+
+// ---------------------------------------------------------------------------
+// Emergency broadcast text + typewriter schedule (shared by video and audio)
+// ---------------------------------------------------------------------------
+// Language: index.html (Turkish) or index.html?lang=en (English)
+const LANG = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'tr';
+const STRINGS = {
+  tr: {
+    header: "Everylight Co. Yönetim Kurulu Bilgilendirmesidir.",
+    body: [
+      "Okul binası içerisinde geceleri duyulduğu rapor edilen sesler ve görüldüğü iddia edilen anomaliler tamamen hayal ürünüdür.",
+      "Bölgedeki tesisleşme çalışmaları tamamen güvenlidir ve öğrencilerimiz koruma altındadır.",
+    ],
+    tagline: 'Her çocuğa parlak bir gelecek!', archive: 'EVERYLIGHT CO. ARŞİVİ', camera: 'KAMERA 07 · KAT -1 · 03:13', subject: 'DENEK #19',
+    broadcast: '— ACİL DURUM YAYINI —', motto: '“Temiz eller, temiz zihinler.”', hidden: 'yardım', spectro: 'KAT -1',
+    ui: { loading: 'Yükleniyor…', ready: 'İzlemek için tıkla · 0:15', replay: 'Tekrar izlemek için tıkla', noaudio: 'Ses başlatılamadı — sessiz izlemek için tıkla',
+      noassets: 'assets.js yüklenemedi — dosyanın index.html ile aynı klasörde olduğundan emin ol', rec: '⏺ Kaydet', recording: '⏺ Kaydediliyor…', frame: 'kare',
+      hint: "Boşluk: oynat/duraklat · ← →: kare kare ilerle · Dikkatli izleyiciler 0:05'te durdurmalı. · <a href='?lang=en'>English</a>",
+      play: 'Oynat / Duraklat (Boşluk)', back: 'Bir kare geri (←)', fwd: 'Bir kare ileri (→)', recTitle: '15 saniyelik videoyu .webm olarak kaydet' },
+  },
+  en: {
+    header: "This is an official notice from the Everylight Co. Board of Directors.",
+    body: [
+      "Sounds reportedly heard at night inside the school building, and the anomalies allegedly sighted there, are entirely imaginary.",
+      "All facility development in the area is completely safe, and our students remain under our protection.",
+    ],
+    tagline: 'A brighter future for every child!', archive: 'EVERYLIGHT CO. ARCHIVE', camera: 'CAMERA 07 · FLOOR -1 · 03:13', subject: 'SUBJECT #19',
+    broadcast: '— EMERGENCY BROADCAST —', motto: '“Clean hands, clean minds.”', hidden: 'help', spectro: 'FLOOR -1',
+    ui: { loading: 'Loading…', ready: 'Click to watch · 0:15', replay: 'Click to watch again', noaudio: 'Audio unavailable — click to watch without sound',
+      noassets: 'Could not load assets.js — keep it in the same folder as index.html', rec: '⏺ Record', recording: '⏺ Recording…', frame: 'frame',
+      hint: "Space: play/pause · ← →: step frame by frame · Careful viewers should pause at 0:05. · <a href='?'>Türkçe</a>",
+      play: 'Play / Pause (Space)', back: 'Previous frame (←)', fwd: 'Next frame (→)', recTitle: 'Record the 15-second video as .webm' },
+  },
+};
+const S = STRINGS[LANG];
+document.documentElement.lang = LANG;
+const HEADER = S.header;
+const BODY = S.body;
+const HEADER_AT = 6.15;
+const schedule = (() => { // per paragraph: array of char reveal times
+  const r = rng(1961), out = [];
+  let t = 6.75;
+  for (const p of BODY) {
+    const times = [];
+    for (let i = 0; i < p.length; i++) {
+      times.push(t);
+      const ch = p[i];
+      t += (1 / 50) * (0.7 + r() * 0.6) + (ch === ',' ? 0.05 : 0);
+    }
+    out.push(times);
+    t += 0.35; // carriage return pause
+  }
+  return out;
+})();
+
+// ---------------------------------------------------------------------------
+// Pre-rendered textures
+// ---------------------------------------------------------------------------
+const noiseFrames = [], staticFrames = [];
+(function makeNoise() {
+  const r = rng(7);
+  for (let k = 0; k < 8; k++) {
+    for (const opaque of [false, true]) {
+      const c = mkCanvas(320, 240), g = c.getContext('2d');
+      const img = g.createImageData(320, 240), d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const v = r() * 255; d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = opaque ? 255 : 255 * r();
+      }
+      g.putImageData(img, 0, 0);
+      (opaque ? staticFrames : noiseFrames).push(c);
+    }
+  }
+})();
+
+const scanlines = (() => { const c = mkCanvas(), g = c.getContext('2d');
+  g.fillStyle = 'rgba(0,0,0,0.16)'; for (let y = 0; y < H; y += 3) g.fillRect(0, y, W, 1); return c; })();
+const vignette = (() => { const c = mkCanvas(), g = c.getContext('2d');
+  const grd = g.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.85);
+  grd.addColorStop(0, 'rgba(0,0,0,0)'); grd.addColorStop(1, 'rgba(0,0,0,0.75)');
+  g.fillStyle = grd; g.fillRect(0, 0, W, H); return c; })();
+const crtMask = (() => { const c = mkCanvas(), g = c.getContext('2d');
+  g.fillStyle = '#000'; g.beginPath(); g.rect(0, 0, W, H); g.roundRect(14, 12, W - 28, H - 24, 46); g.fill('evenodd'); return c; })();
+
+// ---------------------------------------------------------------------------
+// Scene 1: 1960s archive photos of Everylight Co. (real public-domain photos,
+// see CREDITS.md — graded by tools/build_assets.py into assets.js)
+// ---------------------------------------------------------------------------
+const IMG = {};
+const assetsReady = Promise.all(['p1', 'p2', 'p3', 'p4', 'lab'].map((k) => new Promise((res, rej) => {
+  const im = new Image(); im.onload = () => { IMG[k] = im; res(); }; im.onerror = rej;
+  im.src = (window.EVERYLIGHT_ASSETS || {})[k];
+})));
+
+// four slides, 1.25 s each, with a short dissolve
+const SLIDE = 1.25, DISSOLVE = 0.2;
+const PHOTOS = [
+  { key: 'p1', z0: 1.03, z1: 1.10, px: 18, py: -6 },   // Oak Ridge playground, 1944
+  { key: 'p2', z0: 1.06, z1: 1.12, px: -22, py: 4 },   // Emerson Wight playground, 1916
+  { key: 'p3', z0: 1.04, z1: 1.14, px: -34, py: -8 },  // Robert E. Lee School, 1917
+  { key: 'p4', z0: 1.02, z1: 1.16, px: 26, py: -30 },  // Glenwood School play, 1947
+];
+
+function drawPhoto(g, idx, p, t) {
+  const P = PHOTOS[idx];
+  g.save();
+  const z = lerp(P.z0, P.z1, p);
+  g.translate(W / 2 + P.px * (p - 0.5), H / 2 + P.py * (p - 0.5)); g.scale(z, z); g.translate(-W / 2, -H / 2);
+  g.drawImage(IMG[P.key], 0, 0, W, H);
+  if (idx === 2) {          // someone is standing in the dark window of the big building
+    const a = smooth(0.25, 0.85, p) * 0.8;
+    g.save(); g.globalAlpha = a; g.filter = 'blur(0.6px)'; g.fillStyle = '#efe0c2';
+    g.beginPath(); g.ellipse(846.5, 397, 4.2, 5.2, 0, 0, 7); g.fill();
+    g.beginPath(); g.moveTo(839, 426); g.quadraticCurveTo(846.5, 401, 854, 426); g.closePath(); g.fill();
+    g.globalAlpha = a * 0.9; g.fillStyle = '#20140b';
+    g.fillRect(844.6, 395.6, 1.4, 1.2); g.fillRect(847.6, 395.6, 1.4, 1.2);
+    g.restore();
+  }
+  if (idx === 3) {          // one of the children no longer has eyes
+    const a = smooth(0.15, 0.7, p);
+    g.save(); g.globalAlpha = a; g.filter = 'blur(0.7px)'; g.fillStyle = '#0b0603';
+    g.beginPath(); g.ellipse(213.1, 287.2, 3.3, 2.6, 0, 0, 7); g.ellipse(226.3, 287.6, 3.3, 2.6, 0, 0, 7); g.fill();
+    g.globalAlpha = a * smooth(0.55, 1, p) * 0.7; g.lineWidth = 1.1; g.strokeStyle = '#1a0c06';
+    g.beginPath(); g.moveTo(213.3, 289.5); g.lineTo(212.8, 299); g.moveTo(226.5, 290); g.lineTo(227, 297); g.stroke();
+    g.restore();
+  }
+  g.restore();
+}
+
+const schoolC = mkCanvas(), schoolG = schoolC.getContext('2d');
+function renderSchool(t) {
+  const k = Math.min(PHOTOS.length - 1, Math.floor(t / SLIDE)), p = (t - k * SLIDE) / SLIDE;
+  schoolG.globalAlpha = 1; drawPhoto(schoolG, k, p, t);
+  const fp = 1 - DISSOLVE / SLIDE;
+  if (k < PHOTOS.length - 1 && p > fp) { schoolG.globalAlpha = smooth(fp, 1, p); drawPhoto(schoolG, k + 1, 0, t); }
+  schoolG.globalAlpha = 1;
+}
+
+function drawAdScene(g, t, f, r) {
+  renderSchool(t);
+  // "parasitic" tape wobble, growing over time
+  const wob = 1 + 9 * smooth(1.5, 5, t) ** 2, jit = (r() - 0.5) * 2;
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  for (let y = 0; y < H; y += 6) {
+    const off = Math.sin(y * 0.021 + t * 9) * wob * 0.5 + Math.sin(y * 0.11 + t * 31) * wob * 0.25 + jit;
+    g.drawImage(schoolC, 0, y, W, 6, off, y, W, 6);
+  }
+  // subliminal: one frame of the -1 floor bleeds through the second photo
+  if (f === SUBLIMINAL_1) { g.save(); g.globalAlpha = 0.4; g.drawImage(IMG.lab, 0, 0, W, H); g.restore(); }
+  // warm, faded, flickering print
+  g.globalCompositeOperation = 'multiply'; g.fillStyle = '#f0d6ab'; g.fillRect(0, 0, W, H);
+  g.globalCompositeOperation = 'source-over';
+  g.fillStyle = `rgba(20,10,0,${0.02 + r() * 0.07})`; g.fillRect(0, 0, W, H);
+  // advertisement logo (leaves before the last photo)
+  const la = smooth(0.2, 0.9, t) * (1 - smooth(3.45, 3.8, t));
+  if (la > 0) {
+    g.save(); g.globalAlpha = la * 0.8; g.translate(W / 2, 612);
+    g.fillStyle = 'rgba(250,232,190,0.7)';
+    for (let i = 0; i < 18; i++) { g.rotate(Math.PI / 9); g.beginPath(); g.moveTo(0, -6); g.lineTo(150, -2); g.lineTo(150, 2); g.lineTo(0, 6); g.fill(); }
+    g.restore();
+    g.save(); g.globalAlpha = la; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = 'italic bold 58px Georgia, "Times New Roman", serif';
+    g.lineWidth = 7; g.strokeStyle = '#3a2615'; g.strokeText('Everylight Co.', W / 2, 610);
+    g.fillStyle = '#fbf0d6'; g.fillText('Everylight Co.', W / 2, 610);
+    g.globalAlpha = la * smooth(0.9, 1.5, t); g.font = 'bold 24px Georgia, serif';
+    g.lineWidth = 5; g.strokeText(S.tagline, W / 2, 662);
+    g.fillText(S.tagline, W / 2, 662);
+    g.restore();
+  }
+  // archive stamp, top-left
+  g.save(); g.globalAlpha = 0.55; g.font = 'bold 15px "Courier New", monospace'; g.fillStyle = '#f3e3c3'; g.textBaseline = 'top';
+  g.fillText(`${S.archive} · NO. ${String(1 + Math.min(3, Math.floor(t / SLIDE))).padStart(3, '0')}`, 44, 36); g.restore();
+  // scratches + dust
+  g.strokeStyle = 'rgba(255,245,220,0.35)'; g.lineWidth = 1;
+  for (let i = 0, n = Math.floor(r() * 3); i < n; i++) { const x = r() * W; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (r() - 0.5) * 8, H); g.stroke(); }
+  g.fillStyle = 'rgba(30,20,10,0.6)';
+  for (let i = 0; i < 6; i++) { g.beginPath(); g.arc(r() * W, r() * H, r() * 2.5, 0, 7); g.fill(); }
+  grain(g, f, 0.2);
+}
+
+// ---------------------------------------------------------------------------
+// Scene 2: the -1 floor (graded photo, distorted at composite time)
+// ---------------------------------------------------------------------------
+const SUBLIMINAL_1 = Math.floor(2.92 * FPS), SUBLIMINAL_2 = Math.floor(13.92 * FPS);
+let labC = null, labCh = null;
+function prepareLab() {
+  labC = mkCanvas(); const lg = labC.getContext('2d');
+  lg.drawImage(IMG.lab, 0, 0, W, H);
+  const src = lg.getImageData(0, 0, W, H);
+  labCh = [0, 1, 2].map(ch => { const c = mkCanvas(), g = c.getContext('2d'), img = g.createImageData(W, H);
+    for (let i = 0; i < src.data.length; i += 4) { img.data[i + ch] = src.data[i + ch]; img.data[i + 3] = 255; }
+    g.putImageData(img, 0, 0); return c; });
+}
+const tmpC = mkCanvas(), tmpG = tmpC.getContext('2d');
+
+function drawGlitch(g, t, f, r) {
+  const u = (t - T.glitchStart) / (T.glitchEnd - T.glitchStart);
+  if (u < 0.17) {               // tear: the ad rips open
+    drawAdScene(g, T.glitchStart - 0.01, f, r);
+    for (let i = 0; i < 26; i++) { const y = r() * H, h = 4 + r() * 50;
+      g.drawImage(labC, 0, y, W, h, (r() - 0.5) * 200, y, W, h); }
+    g.globalCompositeOperation = 'difference'; g.fillStyle = '#fff';
+    for (let i = 0; i < 5; i++) g.fillRect(0, r() * H, W, 3 + r() * 25);
+    g.globalCompositeOperation = 'source-over';
+    grain(g, f, 0.5);
+  } else if (u < 0.88) {        // the hidden frame
+    const calm = u > 0.33 && u < 0.7, amt = calm ? 0.18 : 0.8;
+    g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = 'lighter';
+    const dx = 3 + amt * 16;
+    g.drawImage(labCh[0], dx, 0); g.drawImage(labCh[1], 0, 0); g.drawImage(labCh[2], -dx, 0);
+    g.globalCompositeOperation = 'source-over';
+    g.fillStyle = `rgba(80,255,60,${0.03 + r() * 0.05})`; g.fillRect(0, 0, W, H);
+    tmpG.drawImage(canvas, 0, 0);
+    const n = calm ? 4 : 18;
+    for (let i = 0; i < n; i++) { const y = r() * H, h = 3 + r() * (calm ? 12 : 60);
+      g.drawImage(tmpC, 0, y, W, h, (r() - 0.5) * (calm ? 30 : 160), y, W, h); }
+    g.globalAlpha = calm ? 0.12 : 0.35; g.drawImage(staticFrames[f % 8], 0, 0, W, H); g.globalAlpha = 1;
+    // frame burn-in that pause-hunters can read
+    g.fillStyle = 'rgba(210,255,200,0.75)'; g.font = 'bold 18px "Courier New", monospace'; g.textBaseline = 'top';
+    g.fillText(S.camera, 40, 34);
+    g.fillText(S.subject, 40, 58);
+  } else {                      // collapse into static, then nothing
+    g.globalAlpha = 1; g.drawImage(staticFrames[f % 8], 0, 0, W, H);
+    g.fillStyle = `rgba(0,0,0,${smooth(0.88, 1, u)})`; g.fillRect(0, 0, W, H);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Scene 3: emergency broadcast
+// ---------------------------------------------------------------------------
+const FONT = '27px "Courier New", ui-monospace, monospace', LINE_H = 40, MARGIN = 92, MAXW = W - MARGIN * 2;
+function layout(text) { // returns [{start, end}] per visual line
+  ctx.font = FONT; const words = text.split(' '), lines = []; let line = '', start = 0, idx = 0;
+  for (const w of words) { const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > MAXW && line) { lines.push({ start, end: start + line.length }); start = idx; line = w; }
+    else line = test;
+    idx += w.length + 1; }
+  lines.push({ start, end: start + line.length }); return lines;
+}
+const bodyLines = BODY.map(layout);
+// ARG: after the text is complete, six letters glow faintly — in order they spell YARDIM
+const HIDDEN = (() => { const word = S.hidden, marks = BODY.map(() => new Set()); let w = 0;
+  BODY.forEach((p, pi) => { for (let i = 0; i < p.length && w < word.length; i++) if (p[i].toLocaleLowerCase(LANG) === word[w]) { marks[pi].add(i); w++; i += 9; } });
+  return marks; })();
+const HIDDEN_AT = 11.5;
+
+function drawBroadcast(g, t, f, r) {
+  g.fillStyle = '#060606'; g.fillRect(0, 0, W, H);
+  const bg = g.createRadialGradient(W / 2, H / 2, 50, W / 2, H / 2, 600);
+  bg.addColorStop(0, 'rgba(40,40,38,0.35)'); bg.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  const fade = 1 - smooth(T.closing, T.closing + 1.3, t);
+  const hum = 0.92 + 0.08 * Math.sin(t * 2 * Math.PI * 2.1) + (r() - 0.5) * 0.06;
+  g.save(); g.globalAlpha = fade * hum; g.textBaseline = 'alphabetic';
+  // top rule
+  g.fillStyle = '#8d8a82'; g.font = 'bold 16px "Courier New", monospace'; g.textAlign = 'center';
+  if (t > 6.05) { g.fillText(S.broadcast, W / 2, 92); g.fillRect(MARGIN, 108, MAXW, 1); }
+  g.textAlign = 'left';
+  let y = 172;
+  if (t >= HEADER_AT) { g.font = 'bold ' + FONT; g.fillStyle = '#e6e3da';
+    const hl = layout(HEADER); for (const L of hl) { g.fillText(HEADER.slice(L.start, L.end), MARGIN, y); y += LINE_H; } }
+  y += 26;
+  g.font = FONT; g.fillStyle = '#c9c6bd';
+  let cursor = null;
+  BODY.forEach((p, pi) => {
+    const times = schedule[pi]; let shown = 0;
+    while (shown < p.length && times[shown] <= t) shown++;
+    for (const L of bodyLines[pi]) {
+      const n = clamp(shown - L.start, 0, L.end - L.start);
+      if (n > 0) g.fillText(p.slice(L.start, L.start + n), MARGIN, y);
+      if (t > HIDDEN_AT) for (const i of HIDDEN[pi]) if (i >= L.start && i < L.start + n) {
+        g.save(); g.fillStyle = `rgba(214,120,104,${0.55 * smooth(HIDDEN_AT, HIDDEN_AT + 0.4, t)})`;
+        g.fillText(p[i], MARGIN + g.measureText(p.slice(L.start, i)).width, y); g.restore(); }
+      if (times[0] <= t && shown >= L.start) cursor = [MARGIN + g.measureText(p.slice(L.start, L.start + n)).width, y];
+      y += LINE_H;
+    }
+    y += 18;
+  });
+  const typing = t < schedule.at(-1).at(-1) + 0.15 && t > schedule[0][0];
+  if (cursor && (typing || Math.floor(t * 3) % 2 === 0)) g.fillRect(cursor[0] + 4, cursor[1] - 22, 14, 26);
+  g.restore();
+  // occasional rolling bar
+  const roll = ((t * 0.35) % 1) * (H + 120) - 60;
+  g.fillStyle = 'rgba(255,255,255,0.025)'; g.fillRect(0, roll, W, 60);
+  // closing line
+  const ca = smooth(T.closing + 0.6, T.closing + 1.6, t);
+  if (ca > 0) { g.save(); g.globalAlpha = ca * (0.9 + (r() - 0.5) * 0.08);
+    g.font = 'italic 24px Georgia, "Times New Roman", serif'; g.fillStyle = '#b9b4a8'; g.textAlign = 'right';
+    g.fillText(S.motto, W - 64, H - 58); g.restore(); }
+  grain(g, f, 0.07);
+}
+
+// ---------------------------------------------------------------------------
+// Frame compositor
+// ---------------------------------------------------------------------------
+function grain(g, f, a) {
+  g.save(); g.globalAlpha = a; g.globalCompositeOperation = 'overlay';
+  const n = noiseFrames[f % 8], r = rng(f * 31 + 3);
+  g.drawImage(n, -r() * 40, -r() * 40, W + 40, H + 40); g.restore();
+}
+function render(f) {
+  const t = f / FPS, r = rng(f * 7919 + 17);
+  ctx.save();
+  if (t < T.glitchStart) drawAdScene(ctx, t, f, r);
+  else if (t < T.glitchEnd) drawGlitch(ctx, t, f, r);
+  else if (t < T.broadcast) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); }
+  else drawBroadcast(ctx, t, f, r);
+  if (f === SUBLIMINAL_2) { ctx.globalAlpha = 0.22; ctx.drawImage(labC, (r() - 0.5) * 20, 0); ctx.globalAlpha = 1; }
+  ctx.restore();
+  ctx.drawImage(scanlines, 0, 0);
+  if (t < T.glitchStart) ctx.drawImage(vignette, 0, 0);
+  ctx.drawImage(crtMask, 0, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Soundtrack — rendered offline once, played back from any offset
+// ---------------------------------------------------------------------------
+function renderAudio() {
+  const SR = 44100, oc = new OfflineAudioContext(2, SR * DUR, SR);
+  const comp = oc.createDynamicsCompressor(); comp.connect(oc.destination);
+  const master = oc.createGain(); master.gain.value = 0.85; master.connect(comp);
+  const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
+  const noiseBuf = (sec, fn) => { const b = oc.createBuffer(1, Math.ceil(SR * sec), SR), d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = fn(i, d.length); return b; };
+  const R = rng(99);
+  const white = noiseBuf(1, () => R() * 2 - 1);
+
+  // --- cheerful jingle that turns sour ---------------------------------
+  const lp = oc.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3600;
+  const hp = oc.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 110;
+  const music = oc.createGain(); music.connect(lp); lp.connect(hp); hp.connect(master);
+  music.gain.setValueAtTime(1, 0); music.gain.setValueAtTime(1, T.glitchStart - 0.002); music.gain.linearRampToValueAtTime(0, T.glitchStart);
+  const detuneAt = (t) => { const d = smooth(1.2, 5, t) ** 2 * 55;
+    return d * Math.sin(2 * Math.PI * 4.7 * t) + d * 0.6 * Math.sin(2 * Math.PI * 0.8 * t) - (t > 4.3 ? ((t - 4.3) / 0.7) ** 2 * 380 : 0); };
+  function note(type, freq, start, dur, vol, out = music, attack = 0.006) {
+    const o = oc.createOscillator(), g = oc.createGain(); o.type = type; o.frequency.value = freq;
+    const n = Math.max(8, Math.ceil(dur * 200)), curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) curve[i] = detuneAt(start + i / (n - 1) * dur);
+    o.detune.setValueCurveAtTime(curve, start, dur);
+    g.gain.setValueAtTime(0, start); g.gain.linearRampToValueAtTime(vol, start + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    o.connect(g); g.connect(out); o.start(start); o.stop(start + dur + 0.02);
+  }
+  const e8 = 60 / 132 / 2;
+  const mel = [76, 79, 84, 79, 81, 79, 76, 72, 74, 77, 81, 77, 79, 77, 74, 71, 76, 79, 84, 88, 86, 84, 81, 79];
+  const bass = [48, 43, 48, 43, 43, 50, 43, 50, 48, 43, 48, 43];
+  const chords = [[60, 64, 67], [59, 62, 65, 67], [60, 64, 67]];
+  mel.forEach((m, i) => {
+    const t = i * e8;
+    note('triangle', mtof(m), t, e8 * 1.6, 0.20);
+    note('square', mtof(m + 12), t, e8 * 0.6, 0.025);
+    if (i % 8 === 0) note('sine', mtof(m + 24), t, 0.7, 0.07);
+    const ghost = smooth(2.0, 4.8, t);                       // creeping tritone
+    if (ghost > 0) note('sine', mtof(m + 6), t, e8 * 1.4, 0.07 * ghost);
+    if (i % 2 === 0) { const b = bass[i / 2]; note('sine', mtof(b), t, e8 * 1.5, 0.34); note('triangle', mtof(b), t, e8 * 0.9, 0.12); }
+    else for (const c of chords[Math.floor(i / 8)]) note('square', mtof(c), t, e8 * 0.45, 0.022);
+  });
+  // vinyl crackle
+  const crackle = oc.createBufferSource();
+  crackle.buffer = noiseBuf(5, () => (R() < 0.0009 ? (R() * 2 - 1) : (R() * 2 - 1) * 0.015));
+  const cg = oc.createGain(); cg.gain.value = 0.7; crackle.connect(cg); cg.connect(music); crackle.start(0);
+  // slide projector advancing between photos
+  for (let k = 1; k < 4; k++) { const t = k * 1.25 - 0.06, s = oc.createBufferSource(), g = oc.createGain(), f = oc.createBiquadFilter();
+    s.buffer = white; f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 2;
+    g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    g.gain.setValueAtTime(0.35, t + 0.09); g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+    s.connect(f); f.connect(g); g.connect(music); s.start(t); s.stop(t + 0.16); }
+  // something underneath the jingle: two detuned sub tones beating, rising
+  for (const fq of [36.7, 37.9]) { const o = oc.createOscillator(), g = oc.createGain(); o.frequency.value = fq;
+    g.gain.setValueAtTime(0, 1.6); g.gain.linearRampToValueAtTime(0.16, T.glitchStart);
+    o.connect(g); g.connect(master); o.start(1.6); o.stop(T.glitchStart); }
+
+  // --- metallic frequency burst (0.5 s) --------------------------------
+  const gl = oc.createGain(); gl.gain.setValueAtTime(0, 0); gl.gain.setValueAtTime(0.75, T.glitchStart);
+  gl.gain.setValueAtTime(0.75, T.glitchEnd - 0.01); gl.gain.linearRampToValueAtTime(0, T.glitchEnd); gl.connect(master);
+  const shaper = oc.createWaveShaper(); const sc = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; sc[i] = Math.tanh(x * 6); } shaper.curve = sc; shaper.connect(gl);
+  const gn = oc.createBufferSource(); gn.buffer = white; gn.loop = true;
+  const ghp = oc.createBiquadFilter(); ghp.type = 'highpass'; ghp.frequency.value = 1800;
+  const gng = oc.createGain(); gng.gain.value = 0.35;
+  gn.connect(ghp); ghp.connect(gng); gng.connect(shaper); gn.start(T.glitchStart); gn.stop(T.glitchEnd);
+  for (const [type, lo, hi, v] of [['square', 900, 4200, 0.25], ['sawtooth', 70, 240, 0.35], ['square', 2600, 7000, 0.12]]) {
+    const o = oc.createOscillator(), og = oc.createGain(); o.type = type; og.gain.value = v;
+    for (let t = T.glitchStart; t < T.glitchEnd; t += 0.022) o.frequency.setValueAtTime(lo + R() * (hi - lo), t);
+    o.connect(og); og.connect(shaper); o.start(T.glitchStart); o.stop(T.glitchEnd);
+  }
+  { // ring modulated screech
+    const car = oc.createOscillator(), mod = oc.createOscillator(), rm = oc.createGain(), mg = oc.createGain();
+    car.frequency.value = 3170; mod.frequency.value = 47; rm.gain.value = 0; mg.gain.value = 0.6;
+    mod.connect(rm.gain); car.connect(rm); rm.connect(mg); mg.connect(shaper);
+    car.start(T.glitchStart); mod.start(T.glitchStart); car.stop(T.glitchEnd); mod.stop(T.glitchEnd);
+    const sub = oc.createOscillator(), sg = oc.createGain();
+    sub.frequency.setValueAtTime(90, T.glitchStart); sub.frequency.exponentialRampToValueAtTime(28, T.glitchEnd);
+    sg.gain.setValueAtTime(0.9, T.glitchStart); sg.gain.linearRampToValueAtTime(0, T.glitchEnd);
+    sub.connect(sg); sg.connect(master); sub.start(T.glitchStart); sub.stop(T.glitchEnd);
+  }
+
+  // --- broadcast: mains hum, typewriter, and something underneath ------
+  const humG = oc.createGain(); humG.gain.setValueAtTime(0, 0); humG.gain.setValueAtTime(0.05, T.broadcast);
+  humG.gain.setValueAtTime(0.05, T.closing); humG.gain.linearRampToValueAtTime(0.025, T.closing + 1.3);
+  humG.gain.linearRampToValueAtTime(0, DUR); humG.connect(master);
+  const humLp = oc.createBiquadFilter(); humLp.type = 'lowpass'; humLp.frequency.value = 320; humLp.connect(humG);
+  for (const [fq, v] of [[50, 1], [100, 0.5], [150, 0.25]]) { const o = oc.createOscillator(), g = oc.createGain();
+    o.type = 'sawtooth'; o.frequency.value = fq; g.gain.value = v; o.connect(g); g.connect(humLp); o.start(T.broadcast); o.stop(DUR); }
+  const click = noiseBuf(0.018, (i, n) => (R() * 2 - 1) * Math.exp(-i / n * 9));
+  const clickF = oc.createBiquadFilter(); clickF.type = 'bandpass'; clickF.frequency.value = 2600; clickF.Q.value = 0.8; clickF.connect(master);
+  const strike = (t, vol) => { const s = oc.createBufferSource(), g = oc.createGain(); s.buffer = click;
+    s.playbackRate.value = 0.75 + R() * 0.6; g.gain.value = vol; s.connect(g); g.connect(clickF); s.start(t);
+    const th = oc.createOscillator(), tg = oc.createGain(); th.frequency.value = 160 + R() * 40;
+    tg.gain.setValueAtTime(vol * 0.25, t); tg.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+    th.connect(tg); tg.connect(master); th.start(t); th.stop(t + 0.04); };
+  for (let k = 0; k < 6; k++) strike(HEADER_AT + k * 0.012, 0.6);      // header slams in
+  BODY.forEach((p, pi) => { schedule[pi].forEach((t, i) => { if (p[i] !== ' ') strike(t, 0.38 + R() * 0.2); });
+    const end = schedule[pi].at(-1) + 0.08, s = oc.createBufferSource(), g = oc.createGain(), bp = oc.createBiquadFilter();
+    s.buffer = white; bp.type = 'bandpass'; bp.Q.value = 3; bp.frequency.setValueAtTime(900, end); bp.frequency.linearRampToValueAtTime(2400, end + 0.22);
+    g.gain.setValueAtTime(0, end); g.gain.linearRampToValueAtTime(0.25, end + 0.03); g.gain.linearRampToValueAtTime(0, end + 0.24);
+    s.connect(bp); bp.connect(g); g.connect(master); s.start(end); s.stop(end + 0.25); });
+  // reverb send (long, dark room)
+  const verb = oc.createConvolver(), vg = oc.createGain(); vg.gain.value = 0.9;
+  verb.buffer = (() => { const b = oc.createBuffer(2, SR * 3, SR); for (let c = 0; c < 2; c++) { const d = b.getChannelData(c);
+    for (let i = 0; i < d.length; i++) d[i] = (R() * 2 - 1) * Math.pow(1 - i / d.length, 3.2); } return b; })();
+  verb.connect(vg); vg.connect(master);
+  // a heavy metal door, far below, mid-broadcast
+  { const t = 9.55, s = oc.createBufferSource(), g = oc.createGain(), f = oc.createBiquadFilter();
+    s.buffer = white; f.type = 'lowpass'; f.frequency.setValueAtTime(900, t); f.frequency.exponentialRampToValueAtTime(120, t + 0.4);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    s.connect(f); f.connect(g); g.connect(verb); s.start(t); s.stop(t + 0.7);
+    const o = oc.createOscillator(), og = oc.createGain(); o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.5);
+    og.gain.setValueAtTime(0.3, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.7); o.connect(og); og.connect(verb); og.connect(master); o.start(t); o.stop(t + 0.8); }
+  // thump under the closing subliminal frame
+  { const t = SUBLIMINAL_2 / FPS, o = oc.createOscillator(), g = oc.createGain();
+    o.frequency.setValueAtTime(60, t); o.frequency.exponentialRampToValueAtTime(30, t + 0.25);
+    g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35); o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.4); }
+  // ARG: a message drawn into the spectrogram of the closing hum (9–15 kHz)
+  { const c = mkCanvas(150, 28), g = c.getContext('2d');
+    g.fillStyle = '#000'; g.fillRect(0, 0, 150, 28); g.fillStyle = '#fff'; g.font = 'bold 24px "Courier New", monospace'; g.textBaseline = 'middle';
+    g.fillText(S.spectro, 4, 15);
+    const px = g.getImageData(0, 0, 150, 28).data, t0 = 12.25, col = 0.016, rows = 28;
+    for (let y = 0; y < rows; y++) {
+      const o = oc.createOscillator(), og = oc.createGain(); o.frequency.value = 15000 - y * (6000 / rows);
+      og.gain.setValueAtTime(0, 0);
+      for (let x = 0; x < 150; x++) { const v = px[(y * 150 + x) * 4] / 255; og.gain.setTargetAtTime(v * 0.006, t0 + x * col, 0.002); }
+      og.gain.setTargetAtTime(0, t0 + 150 * col, 0.002);
+      o.connect(og); og.connect(master); o.start(t0); o.stop(t0 + 150 * col + 0.05); }
+  }
+  // closing drone
+  const dr = oc.createOscillator(), dg = oc.createGain(); dr.frequency.value = 41;
+  dg.gain.setValueAtTime(0, T.closing); dg.gain.linearRampToValueAtTime(0.16, 14); dg.gain.linearRampToValueAtTime(0, DUR);
+  dr.connect(dg); dg.connect(master); dr.start(T.closing); dr.stop(DUR);
+  // a distant cry buried in the hum — the "anomaly"
+  const cry = oc.createOscillator(), cv = oc.createOscillator(), cvg = oc.createGain(), cbp = oc.createBiquadFilter(), cgn = oc.createGain();
+  cry.type = 'sawtooth'; cry.frequency.setValueAtTime(720, 13.0); cry.frequency.linearRampToValueAtTime(1250, 13.6); cry.frequency.linearRampToValueAtTime(860, 14.6);
+  cv.frequency.value = 6.5; cvg.gain.value = 35; cv.connect(cvg); cvg.connect(cry.frequency);
+  cbp.type = 'bandpass'; cbp.frequency.value = 1100; cbp.Q.value = 5;
+  cgn.gain.setValueAtTime(0, 13.0); cgn.gain.linearRampToValueAtTime(0.018, 13.6); cgn.gain.linearRampToValueAtTime(0, 14.7);
+  cry.connect(cbp); cbp.connect(cgn); cgn.connect(master); cgn.connect(verb);
+  cry.start(13.0); cv.start(13.0); cry.stop(14.8); cv.stop(14.8);
+
+  return oc.startRendering();
+}
+
+// ---------------------------------------------------------------------------
+// Player
+// ---------------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const ui = { play: $('play'), back: $('back'), fwd: $('fwd'), seek: $('seek'), time: $('time'), rec: $('rec'), overlay: $('overlay'), ovsub: $('ovsub') };
+ui.ovsub.textContent = S.ui.loading; ui.rec.textContent = S.ui.rec; $('hint').innerHTML = S.ui.hint;
+ui.play.title = S.ui.play; ui.back.title = S.ui.back; ui.fwd.title = S.ui.fwd; ui.rec.title = S.ui.recTitle;
+let audioBuf = null, actx = null, src = null, playing = false, offset = 0, ctxStart = 0, perfStart = 0, lastFrame = -1;
+let recorder = null, recDest = null, recChunks = [];
+
+const now = () => {
+  if (!playing) return offset;
+  const el = actx && audioBuf ? actx.currentTime - ctxStart : (performance.now() - perfStart) / 1000;
+  return Math.min(DUR, offset + el);
+};
+function play() {
+  if (offset >= DUR - 1 / FPS) offset = 0;
+  if (!actx) { try { actx = new AudioContext(); } catch (e) { actx = null; } }
+  if (actx && actx.state === 'suspended') actx.resume();
+  if (actx && audioBuf) {
+    src = actx.createBufferSource(); src.buffer = audioBuf; src.connect(actx.destination);
+    if (recDest) src.connect(recDest);
+    src.start(0, offset); ctxStart = actx.currentTime;
+  }
+  perfStart = performance.now(); playing = true; ui.play.textContent = '❚❚'; ui.overlay.classList.add('hidden');
+}
+function pause() {
+  offset = now(); playing = false; ui.play.textContent = '▶';
+  if (src) { try { src.stop(); } catch (e) {} src.disconnect(); src = null; }
+}
+function seek(t) { const was = playing; if (was) pause(); offset = clamp(t, 0, DUR); lastFrame = -1; if (was) play(); }
+function step(d) { if (playing) pause(); seek((Math.round(offset * FPS) + d) / FPS); }
+const fmt = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${String(m).padStart(2, '0')}:${s.toFixed(2).padStart(5, '0')}`; };
+
+function tick() {
+  let t = now();
+  if (playing && t >= DUR) { pause(); offset = DUR; t = DUR; if (recorder) recorder.stop(); else showReplay(); }
+  const f = Math.min(FRAMES - 1, Math.floor(t * FPS + 1e-6));
+  if (f !== lastFrame) { render(f); lastFrame = f; ui.seek.value = (f / FPS).toFixed(4); ui.time.textContent = `${fmt(f / FPS)} · ${S.ui.frame} ${f}`; }
+  requestAnimationFrame(tick);
+}
+function showReplay() { ui.ovsub.textContent = S.ui.replay; ui.overlay.classList.remove('hidden'); }
+
+ui.overlay.addEventListener('click', () => { if (ready) play(); });
+ui.play.addEventListener('click', () => { if (ready) (playing ? pause() : play()); });
+ui.back.addEventListener('click', () => step(-1));
+ui.fwd.addEventListener('click', () => step(1));
+ui.seek.addEventListener('input', () => { if (playing) pause(); seek(parseFloat(ui.seek.value)); ui.overlay.classList.add('hidden'); });
+addEventListener('keydown', (e) => {
+  if (!ready) return;
+  if (e.code === 'Space') { e.preventDefault(); playing ? pause() : play(); }
+  else if (e.code === 'ArrowLeft' || e.key === ',') { e.preventDefault(); step(-1); }
+  else if (e.code === 'ArrowRight' || e.key === '.') { e.preventDefault(); step(1); }
+});
+ui.rec.addEventListener('click', () => {
+  if (!ready || recorder || !window.MediaRecorder) return;
+  if (!actx) actx = new AudioContext();
+  recDest = actx.createMediaStreamDestination();
+  const stream = new MediaStream([...canvas.captureStream(FPS).getVideoTracks(), ...recDest.stream.getAudioTracks()]);
+  const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(m => MediaRecorder.isTypeSupported(m));
+  recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : {}); recChunks = [];
+  recorder.ondataavailable = (e) => e.data.size && recChunks.push(e.data);
+  recorder.onstop = () => {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(recChunks, { type: 'video/webm' }));
+    a.download = 'everylight-intro.webm'; a.click();
+    recorder = null; recDest = null; ui.rec.disabled = false; ui.rec.textContent = S.ui.rec; showReplay();
+  };
+  ui.rec.disabled = true; ui.rec.textContent = S.ui.recording;
+  pause(); offset = 0; recorder.start(); play();
+});
+
+let ready = false;
+assetsReady.then(() => {
+  prepareLab(); render(0); requestAnimationFrame(tick);
+  return renderAudio().then((b) => { audioBuf = b; ui.ovsub.textContent = S.ui.ready; })
+    .catch(() => { ui.ovsub.dataset.noaudio = '1'; ui.ovsub.textContent = S.ui.noaudio; });
+}).then(() => { ready = true; })
+  .catch(() => { ui.ovsub.textContent = S.ui.noassets; });
+</script>
+</body>
+</html>
