@@ -24,6 +24,7 @@
   button:disabled { opacity:.4; cursor:default; }
   input[type=range] { flex:1; min-width:120px; accent-color:var(--accent); }
   #time { font-size:13px; color:var(--dim); min-width:120px; text-align:right; font-variant-numeric:tabular-nums; }
+  #hint a { color:var(--accent); }
   #hint { width:min(100%, calc((100vh - 120px) * 4 / 3)); font-size:12px; color:var(--dim); margin:0; }
 </style>
 </head>
@@ -73,11 +74,40 @@ const T = {
 // ---------------------------------------------------------------------------
 // Emergency broadcast text + typewriter schedule (shared by video and audio)
 // ---------------------------------------------------------------------------
-const HEADER = "Everylight Co. Yönetim Kurulu Bilgilendirmesidir.";
-const BODY = [
-  "Okul binası içerisinde geceleri duyulduğu rapor edilen sesler ve görüldüğü iddia edilen anomaliler tamamen hayal ürünüdür.",
-  "Bölgedeki tesisleşme çalışmaları tamamen güvenlidir ve öğrencilerimiz koruma altındadır.",
-];
+// Language: index.html (Turkish) or index.html?lang=en (English)
+const LANG = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'tr';
+const STRINGS = {
+  tr: {
+    header: "Everylight Co. Yönetim Kurulu Bilgilendirmesidir.",
+    body: [
+      "Okul binası içerisinde geceleri duyulduğu rapor edilen sesler ve görüldüğü iddia edilen anomaliler tamamen hayal ürünüdür.",
+      "Bölgedeki tesisleşme çalışmaları tamamen güvenlidir ve öğrencilerimiz koruma altındadır.",
+    ],
+    tagline: 'Her çocuğa parlak bir gelecek!', archive: 'EVERYLIGHT CO. ARŞİVİ', camera: 'KAMERA 07 · KAT -1 · 03:13', subject: 'DENEK #19',
+    broadcast: '— ACİL DURUM YAYINI —', motto: '“Temiz eller, temiz zihinler.”', hidden: 'yardım', spectro: 'KAT -1',
+    ui: { loading: 'Yükleniyor…', ready: 'İzlemek için tıkla · 0:15', replay: 'Tekrar izlemek için tıkla', noaudio: 'Ses başlatılamadı — sessiz izlemek için tıkla',
+      noassets: 'assets.js yüklenemedi — dosyanın index.html ile aynı klasörde olduğundan emin ol', rec: '⏺ Kaydet', recording: '⏺ Kaydediliyor…', frame: 'kare',
+      hint: "Boşluk: oynat/duraklat · ← →: kare kare ilerle · Dikkatli izleyiciler 0:05'te durdurmalı. · <a href='?lang=en'>English</a>",
+      play: 'Oynat / Duraklat (Boşluk)', back: 'Bir kare geri (←)', fwd: 'Bir kare ileri (→)', recTitle: '15 saniyelik videoyu .webm olarak kaydet' },
+  },
+  en: {
+    header: "This is an official notice from the Everylight Co. Board of Directors.",
+    body: [
+      "Sounds reportedly heard at night inside the school building, and the anomalies allegedly sighted there, are entirely imaginary.",
+      "All facility development in the area is completely safe, and our students remain under our protection.",
+    ],
+    tagline: 'A brighter future for every child!', archive: 'EVERYLIGHT CO. ARCHIVE', camera: 'CAMERA 07 · FLOOR -1 · 03:13', subject: 'SUBJECT #19',
+    broadcast: '— EMERGENCY BROADCAST —', motto: '“Clean hands, clean minds.”', hidden: 'help', spectro: 'FLOOR -1',
+    ui: { loading: 'Loading…', ready: 'Click to watch · 0:15', replay: 'Click to watch again', noaudio: 'Audio unavailable — click to watch without sound',
+      noassets: 'Could not load assets.js — keep it in the same folder as index.html', rec: '⏺ Record', recording: '⏺ Recording…', frame: 'frame',
+      hint: "Space: play/pause · ← →: step frame by frame · Careful viewers should pause at 0:05. · <a href='?'>Türkçe</a>",
+      play: 'Play / Pause (Space)', back: 'Previous frame (←)', fwd: 'Next frame (→)', recTitle: 'Record the 15-second video as .webm' },
+  },
+};
+const S = STRINGS[LANG];
+document.documentElement.lang = LANG;
+const HEADER = S.header;
+const BODY = S.body;
 const HEADER_AT = 6.15;
 const schedule = (() => { // per paragraph: array of char reveal times
   const r = rng(1961), out = [];
@@ -204,13 +234,13 @@ function drawAdScene(g, t, f, r) {
     g.lineWidth = 7; g.strokeStyle = '#3a2615'; g.strokeText('Everylight Co.', W / 2, 610);
     g.fillStyle = '#fbf0d6'; g.fillText('Everylight Co.', W / 2, 610);
     g.globalAlpha = la * smooth(0.9, 1.5, t); g.font = 'bold 24px Georgia, serif';
-    g.lineWidth = 5; g.strokeText('Her çocuğa parlak bir gelecek!', W / 2, 662);
-    g.fillText('Her çocuğa parlak bir gelecek!', W / 2, 662);
+    g.lineWidth = 5; g.strokeText(S.tagline, W / 2, 662);
+    g.fillText(S.tagline, W / 2, 662);
     g.restore();
   }
   // archive stamp, top-left
   g.save(); g.globalAlpha = 0.55; g.font = 'bold 15px "Courier New", monospace'; g.fillStyle = '#f3e3c3'; g.textBaseline = 'top';
-  g.fillText(`EVERYLIGHT CO. ARŞİVİ · NO. ${String(1 + Math.min(3, Math.floor(t / SLIDE))).padStart(3, '0')}`, 44, 36); g.restore();
+  g.fillText(`${S.archive} · NO. ${String(1 + Math.min(3, Math.floor(t / SLIDE))).padStart(3, '0')}`, 44, 36); g.restore();
   // scratches + dust
   g.strokeStyle = 'rgba(255,245,220,0.35)'; g.lineWidth = 1;
   for (let i = 0, n = Math.floor(r() * 3); i < n; i++) { const x = r() * W; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (r() - 0.5) * 8, H); g.stroke(); }
@@ -259,8 +289,8 @@ function drawGlitch(g, t, f, r) {
     g.globalAlpha = calm ? 0.12 : 0.35; g.drawImage(staticFrames[f % 8], 0, 0, W, H); g.globalAlpha = 1;
     // frame burn-in that pause-hunters can read
     g.fillStyle = 'rgba(210,255,200,0.75)'; g.font = 'bold 18px "Courier New", monospace'; g.textBaseline = 'top';
-    g.fillText('KAMERA 07 · KAT -1 · 03:13', 40, 34);
-    g.fillText('DENEK #19', 40, 58);
+    g.fillText(S.camera, 40, 34);
+    g.fillText(S.subject, 40, 58);
   } else {                      // collapse into static, then nothing
     g.globalAlpha = 1; g.drawImage(staticFrames[f % 8], 0, 0, W, H);
     g.fillStyle = `rgba(0,0,0,${smooth(0.88, 1, u)})`; g.fillRect(0, 0, W, H);
@@ -281,8 +311,8 @@ function layout(text) { // returns [{start, end}] per visual line
 }
 const bodyLines = BODY.map(layout);
 // ARG: after the text is complete, six letters glow faintly — in order they spell YARDIM
-const HIDDEN = (() => { const word = 'yardım', marks = BODY.map(() => new Set()); let w = 0;
-  BODY.forEach((p, pi) => { for (let i = 0; i < p.length && w < word.length; i++) if (p[i].toLocaleLowerCase('tr') === word[w]) { marks[pi].add(i); w++; i += 9; } });
+const HIDDEN = (() => { const word = S.hidden, marks = BODY.map(() => new Set()); let w = 0;
+  BODY.forEach((p, pi) => { for (let i = 0; i < p.length && w < word.length; i++) if (p[i].toLocaleLowerCase(LANG) === word[w]) { marks[pi].add(i); w++; i += 9; } });
   return marks; })();
 const HIDDEN_AT = 11.5;
 
@@ -296,7 +326,7 @@ function drawBroadcast(g, t, f, r) {
   g.save(); g.globalAlpha = fade * hum; g.textBaseline = 'alphabetic';
   // top rule
   g.fillStyle = '#8d8a82'; g.font = 'bold 16px "Courier New", monospace'; g.textAlign = 'center';
-  if (t > 6.05) { g.fillText('— ACİL DURUM YAYINI —', W / 2, 92); g.fillRect(MARGIN, 108, MAXW, 1); }
+  if (t > 6.05) { g.fillText(S.broadcast, W / 2, 92); g.fillRect(MARGIN, 108, MAXW, 1); }
   g.textAlign = 'left';
   let y = 172;
   if (t >= HEADER_AT) { g.font = 'bold ' + FONT; g.fillStyle = '#e6e3da';
@@ -328,7 +358,7 @@ function drawBroadcast(g, t, f, r) {
   const ca = smooth(T.closing + 0.6, T.closing + 1.6, t);
   if (ca > 0) { g.save(); g.globalAlpha = ca * (0.9 + (r() - 0.5) * 0.08);
     g.font = 'italic 24px Georgia, "Times New Roman", serif'; g.fillStyle = '#b9b4a8'; g.textAlign = 'right';
-    g.fillText('“Temiz eller, temiz zihinler.”', W - 64, H - 58); g.restore(); }
+    g.fillText(S.motto, W - 64, H - 58); g.restore(); }
   grain(g, f, 0.07);
 }
 
@@ -476,7 +506,7 @@ function renderAudio() {
   // ARG: a message drawn into the spectrogram of the closing hum (9–15 kHz)
   { const c = mkCanvas(150, 28), g = c.getContext('2d');
     g.fillStyle = '#000'; g.fillRect(0, 0, 150, 28); g.fillStyle = '#fff'; g.font = 'bold 24px "Courier New", monospace'; g.textBaseline = 'middle';
-    g.fillText('KAT -1', 4, 15);
+    g.fillText(S.spectro, 4, 15);
     const px = g.getImageData(0, 0, 150, 28).data, t0 = 12.25, col = 0.016, rows = 28;
     for (let y = 0; y < rows; y++) {
       const o = oc.createOscillator(), og = oc.createGain(); o.frequency.value = 15000 - y * (6000 / rows);
@@ -506,6 +536,8 @@ function renderAudio() {
 // ---------------------------------------------------------------------------
 const $ = (id) => document.getElementById(id);
 const ui = { play: $('play'), back: $('back'), fwd: $('fwd'), seek: $('seek'), time: $('time'), rec: $('rec'), overlay: $('overlay'), ovsub: $('ovsub') };
+ui.ovsub.textContent = S.ui.loading; ui.rec.textContent = S.ui.rec; $('hint').innerHTML = S.ui.hint;
+ui.play.title = S.ui.play; ui.back.title = S.ui.back; ui.fwd.title = S.ui.fwd; ui.rec.title = S.ui.recTitle;
 let audioBuf = null, actx = null, src = null, playing = false, offset = 0, ctxStart = 0, perfStart = 0, lastFrame = -1;
 let recorder = null, recDest = null, recChunks = [];
 
@@ -537,10 +569,10 @@ function tick() {
   let t = now();
   if (playing && t >= DUR) { pause(); offset = DUR; t = DUR; if (recorder) recorder.stop(); else showReplay(); }
   const f = Math.min(FRAMES - 1, Math.floor(t * FPS + 1e-6));
-  if (f !== lastFrame) { render(f); lastFrame = f; ui.seek.value = (f / FPS).toFixed(4); ui.time.textContent = `${fmt(f / FPS)} · kare ${f}`; }
+  if (f !== lastFrame) { render(f); lastFrame = f; ui.seek.value = (f / FPS).toFixed(4); ui.time.textContent = `${fmt(f / FPS)} · ${S.ui.frame} ${f}`; }
   requestAnimationFrame(tick);
 }
-function showReplay() { ui.ovsub.textContent = 'Tekrar izlemek için tıkla'; ui.overlay.classList.remove('hidden'); }
+function showReplay() { ui.ovsub.textContent = S.ui.replay; ui.overlay.classList.remove('hidden'); }
 
 ui.overlay.addEventListener('click', () => { if (ready) play(); });
 ui.play.addEventListener('click', () => { if (ready) (playing ? pause() : play()); });
@@ -564,19 +596,19 @@ ui.rec.addEventListener('click', () => {
   recorder.onstop = () => {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(recChunks, { type: 'video/webm' }));
     a.download = 'everylight-intro.webm'; a.click();
-    recorder = null; recDest = null; ui.rec.disabled = false; ui.rec.textContent = '⏺ Kaydet'; showReplay();
+    recorder = null; recDest = null; ui.rec.disabled = false; ui.rec.textContent = S.ui.rec; showReplay();
   };
-  ui.rec.disabled = true; ui.rec.textContent = '⏺ Kaydediliyor…';
+  ui.rec.disabled = true; ui.rec.textContent = S.ui.recording;
   pause(); offset = 0; recorder.start(); play();
 });
 
 let ready = false;
 assetsReady.then(() => {
   prepareLab(); render(0); requestAnimationFrame(tick);
-  return renderAudio().then((b) => { audioBuf = b; ui.ovsub.textContent = 'İzlemek için tıkla · 0:15'; })
-    .catch(() => { ui.ovsub.dataset.noaudio = '1'; ui.ovsub.textContent = 'Ses başlatılamadı — sessiz izlemek için tıkla'; });
+  return renderAudio().then((b) => { audioBuf = b; ui.ovsub.textContent = S.ui.ready; })
+    .catch(() => { ui.ovsub.dataset.noaudio = '1'; ui.ovsub.textContent = S.ui.noaudio; });
 }).then(() => { ready = true; })
-  .catch(() => { ui.ovsub.textContent = 'assets.js yüklenemedi — dosyanın index.html ile aynı klasörde olduğundan emin ol'; });
+  .catch(() => { ui.ovsub.textContent = S.ui.noassets; });
 </script>
 </body>
 </html>

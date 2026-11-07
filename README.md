@@ -5,6 +5,9 @@
 `everylight-intro/index.html` — 15 saniyelik Everylight Co. ARG / analog-horror intro'su. Tarayıcıda aç (`assets.js` aynı klasörde olmalı).
 
 Hazır video: [`everylight-intro/everylight-intro.mp4`](everylight-intro/everylight-intro.mp4) (960×720, 24 fps, sesli).
+İngilizce sürüm: [`everylight-intro/everylight-intro-en.mp4`](everylight-intro/everylight-intro-en.mp4) — tarayıcıda `index.html?lang=en`. İngilizcede gizli kelime **HELP**, spektrogramda **FLOOR -1**.
+
+Logo: [`everylight-intro/logo/`](everylight-intro/logo/) — `everylight-logo.svg/png` (Türkçe), `everylight-logo-en.svg/png` (English).
 
 | Süre | Sahne |
 |---|---|
